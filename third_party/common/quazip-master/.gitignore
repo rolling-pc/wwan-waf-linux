@@ -1,0 +1,11 @@
+/doc
+/build
+/lib
+*.tags
+*.user
+*.swp
+.idea/
+cmake-*
+CMakeUserPresets.json
+vcpkg_installed/
+Testing/

@@ -1,0 +1,102 @@
+# /* This program is free software: you can redistribute it and/or modify
+#  * it under the terms of the GNU Lesser General Public License as published by
+#  * the Free Software Foundation, either version 3 of the License, or
+#  * (at your option) any later version.
+#  *
+#  * This program is distributed in the hope that it will be useful,
+#  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  * GNU Lesser General Public License for more details.
+#  *
+#  * You should have received a copy of the GNU Lesser General Public License
+#  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#  *
+#  * Copyright (C) 2024, Rolling Wireless S.a.r.l.
+#  */
+
+cmake_minimum_required(VERSION 3.22)
+
+project(tx_agent VERSION 1.0.0 LANGUAGES CXX)
+find_package(Qt5 REQUIRED COMPONENTS Core)
+set(CMAKE_AUTOMOC ON)
+
+set(CMAKE_RELEASE_DIR ${CMAKE_BINARY_DIR}/release_lib)
+set(LIBRARY_OUTPUT_PATH ${CMAKE_RELEASE_DIR}/adapter_product)
+set(HEADER_OUTPUT_PATH ${CMAKE_RELEASE_DIR}/adapter_product/api)  # 头文件的目标目录
+set(SYMLINK_PATH ${CMAKE_RELEASE_DIR}/adapter_product/lib${PROJECT_NAME}.so.${PROJECT_VERSION})
+
+
+set(TXAGENT_MAJOR_VERSION 1)
+set(TXAGENT_MINOR_VERSION 0)
+set(TXAGENT_PATCH_VERSION 0)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(TXAGENT_VERSION_STRING ${TXAGENT_MAJOR_VERSION}.${TXAGENT_MINOR_VERSION}.${TXAGENT_PATCH_VERSION})
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(TXAGENT_VERSION_STRING ${TXAGENT_MAJOR_VERSION}.${TXAGENT_MINOR_VERSION}.${TXAGENT_PATCH_VERSION}.0)
+endif()
+
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
+                "./version.h")
+
+# 定义源码文件
+set(build_file 
+tx_agent.cpp
+)
+
+set(HEADER_FILES  
+    ${CMAKE_CURRENT_SOURCE_DIR}/../api/tx_agent.hpp
+)
+# 定义头文件路径
+set(build_head_path 
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include  # 假设头文件在 include 目录下
+)
+
+include_directories(${build_head_path})
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../../libs/qt_lib")
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+    set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+    set(project_sys_lib_path ""
+                    )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(project_sys_lib_path "")
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+add_library(${PROJECT_NAME} SHARED ${build_file})
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+add_library(${PROJECT_NAME} STATIC ${build_file})
+endif()
+target_link_libraries(${PROJECT_NAME} Qt5::Core)
+# 设置库的头文件路径
+target_include_directories(${PROJECT_NAME} PUBLIC
+    $<BUILD_INTERFACE:${build_head_path}>
+    $<INSTALL_INTERFACE:include>
+)
+
+# 设置库的输出目录
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${LIBRARY_OUTPUT_PATH}
+)
+
+# 自定义拷贝库文件、头文件
+add_custom_command(
+    TARGET ${PROJECT_NAME}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${LIBRARY_OUTPUT_PATH}/lib${PROJECT_NAME}.so
+)
+# copy 所需头文件
+foreach(HEADER_FILE ${HEADER_FILES})
+    get_filename_component(HEADER_NAME ${HEADER_FILE} NAME)
+    add_custom_command(
+        TARGET ${PROJECT_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            ${HEADER_FILE}
+            ${HEADER_OUTPUT_PATH}/${HEADER_NAME}
+        COMMENT "Copying ${HEADER_NAME} to ${HEADER_OUTPUT_PATH}"
+    )
+endforeach()
+

@@ -1,0 +1,77 @@
+BUILD_ADB_HOST = 1
+HOST_OS = Windows
+
+LFLAGS = -Wl,-Map,pcie-adb.map
+
+COMMON_SRC_FILES := \
+	adb.c \
+	fdevent.c \
+	transport.c \
+	transport_local.c \
+	sockets.c \
+	services.c \
+	transport_pcie.c \
+
+ADB_SRC_FILES := \
+	adb_auth_host.c \
+	adb_client.c \
+	commandline.c \
+	console.c \
+	file_sync_client.c \
+	get_my_path_linux.c
+
+LOCAL_SRC_FILES += \
+	socket_inaddr_any_server.c \
+	socket_loopback_client.c \
+	socket_loopback_server.c \
+	socket_network_client.c \
+	socket_local_client.c \
+	socket_local_server.c \
+	load_file.c \
+	sha.c \
+	sha256.c
+
+LOCAL_CFLAGS := \
+	-O2 \
+	-D_XOPEN_SOURCE \
+	-D_GNU_SOURCE \
+	-Wall -Wno-unused-parameter -Wno-deprecated-declarations \
+	-DADB_NON_ANDROID=1 \
+	-DALLOW_ADBD_ROOT=1 \
+	-DHAVE_PTHREADS \
+	-DADB_OVER_PCIE=1 \
+	-DDEBUG_PACKETS=1
+
+# Generate debug information
+# LOCAL_CFLAGS+= -g
+
+LOCAL_SRC_FILES+= centraldir.c zipfile.c
+
+CPPFLAGS+= -DADB_HOST=1
+CPPFLAGS+= -DDZONE -DHAVE_FORKEXEC=1 -DHAVE_SYMLINKS -DHAVE_TERMIO_H
+CPPFLAGS+= -D_GNU_SOURCE -D_XOPEN_SOURCE
+CPPFLAGS+= -I. -I./include
+
+CFLAGS+= $(LOCAL_CFLAGS)
+
+LOCAL_MODULE := pcie-adb.exe
+LOCAL_SRC_FILES+= $(COMMON_SRC_FILES) $(ADB_SRC_FILES)
+
+ifeq ($(HOST_OS), Windows)
+LOCAL_CFLAGS+= -DADB_WINDOWS
+LIBS+= -L./lib/windows -lcrypto
+else
+LIBS+= -L./lib/linux -lcrypto
+endif
+
+LIBS+= -ldl -pthread -lc -lz
+
+OBJS=$(LOCAL_SRC_FILES:.c=.o)
+
+all: $(LOCAL_MODULE)
+
+$(LOCAL_MODULE): $(OBJS)
+	$(CC) -o $@ $(LDFLAGS) $(OBJS) $(LIBS) $(LFLAGS)
+
+clean:
+	rm -rf $(OBJS) *.o *.map $(LOCAL_MODULE)

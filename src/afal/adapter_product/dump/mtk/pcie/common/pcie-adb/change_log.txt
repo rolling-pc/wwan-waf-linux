@@ -1,0 +1,7 @@
+v1.0.32.2
+    - Fix several bugs for logging
+
+Build 1:
+    - Fix the issue "HSD22013108728 | [FM350-GL][FBC][NA][lirufa][NA][NA][NA:FT]fail to catch sap log(adb not ack)"
+      URL: https://hsdes.intel.com/resource/22013108728
+

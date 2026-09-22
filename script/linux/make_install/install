@@ -1,0 +1,470 @@
+#!/bin/bash
+
+parentdir=$(cd `dirname $0`/../../..; pwd)
+BUILD_DIR=${parentdir}/build
+LIB_PATH=${BUILD_DIR}/release_lib/*
+TOOL_LIB_PATH=${BUILD_DIR}/release_lib/private_tool_kits
+WWAN_FUNC_PATH=${BUILD_DIR}/src/wsf/wwan_func_service
+WWAN_DEV_PATH=${BUILD_DIR}/src/wsf/wwan_dev_service
+WWAN_MA_PATH=${BUILD_DIR}/src/wsf/wwan_plugin/ma_service
+WWAN_TOOL_KITS_PATH=${BUILD_DIR}/src/wtf/tool_kits_service
+
+WWAN_BAND_INFO_PATH=${BUILD_DIR}/../src/wtf/tool_kits_service/private_tool_kits/config_file/BandInfo.xml
+
+UI_PATH=${BUILD_DIR}/UI
+WWAN_CLI_PATH=${BUILD_DIR}/src/cli
+
+RELEASE_DEB_RPM_PATH=${BUILD_DIR}/release/opt/waf
+RELEASE_RUN_PATH=${BUILD_DIR}/release/usr/local/opt/waf
+
+
+echo "***************$3*******************"
+# script run path
+
+SOURCE_RUN_SCRIPT_PATH=${parentdir}/script/linux/cpack_source/run
+
+RELEASE_PATH=''
+RELEASE_SERVICE_FUNC_PATH=''
+RELEASE_SERVICE_DEV_PATH=''
+RELEASE_PLUGIN_MA_PATH=''
+RELEASE_LIB_PATH=''
+RELEASE_TOOL_KITS_PATH=''
+RELEASE_UI_PATH=''
+RELEASE_CLI_PATH=''
+RELEASE_SCRIPT_PATH=''
+
+RELSEASE_DESKTOP_PATH=${BUILD_DIR}/release/usr/share/applications/
+SOURCE_ICON_PATH=${parentdir}/script/linux/cpack_source/rolling.png
+# SOURCE_ICON_PATH=${parentdir}/script/linux/cpack_source/tool_kits.ico
+
+RELEASE_SYSTEMD_PATH=${BUILD_DIR}/release/lib/systemd/system/
+RELEASE_SYSTEMD_FUNC_CONF_PATH=${RELEASE_SYSTEMD_PATH}/wwan_func.d
+RELEASE_SYSTEMD_DEV_CONF_PATH=${RELEASE_SYSTEMD_PATH}/wwan_dev.d
+RELEASE_SYSTEMD_MA_CONF_PATH=${RELEASE_SYSTEMD_PATH}/wwan_ma.d
+
+RELEASE_INIT_PATH=${RELEASE_RUN_PATH}/etc/init
+
+# tool_kits
+
+function create_fibcli_intstall()
+{
+    mkdir -p ${RELEASE_CLI_PATH}
+    cp -raf ${WWAN_CLI_PATH}/cli ${RELEASE_CLI_PATH}
+}
+
+function create_lib_intstall()
+{
+    mkdir -p ${RELEASE_LIB_PATH}
+    cp -raf ${LIB_PATH} ${RELEASE_LIB_PATH}
+
+    # 添加ICU 70库支持
+    if [ -d "${BUILD_DIR}/release_lib/icu_lib" ]; then
+        mkdir -p ${RELEASE_LIB_PATH}/icu_lib
+        cp -raf ${BUILD_DIR}/release_lib/icu_lib/* ${RELEASE_LIB_PATH}/icu_lib/
+        echo "ICU 70 libraries copied to package"
+    fi
+
+    find "$RELEASE_LIB_PATH" -type d -name "api" -exec rm -rf {} +
+}
+
+function create_tool_start()
+{
+    echo "env LD_LIBRARY_PATH=/usr/local/opt/waf/libs/cxx_lib:/usr/local/opt/waf/libs/qc_lib:\$LD_LIBRARY_PATH exec /usr/local/opt/waf/tools/tool_kits_service/tool_kits" > $1/tool_kits.sh
+}
+
+function create_wwan_tool_service_conf()
+{
+    echo "# Copyright 2024 The ROLLING Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+description     \"starts wwan_tool service has been started.\"
+author          \"Rolling Wireless S.a.r.l.\"
+
+oom score -100
+
+
+start on starting system-services
+stop on stopping system-services
+
+respawn
+# if the job respawns 3 times in 30 seconds, stop trying.
+respawn limit 3 30
+# Do not respawn if we exited on purpose (e.g. service disabled).
+normal exit 0
+
+# Keep track of the wwan_dev process launched by minijail instead of the
+# minijail process. minijail exits immediately after launching wwan_dev.
+
+script
+  # Override logging level if sticky flag exists.
+  mkdir -p /var/log/waf/out || True
+  LD_LIBRARY_PATH=/usr/local/opt/waf/libs/cxx_lib:/usr/local/opt/waf/libs/qc_lib:\$LD_LIBRARY_PATH \\
+  exec /usr/local/opt/waf/tools/tool_kits_service/tool_kits
+end script" > $1/wwan_tool.conf
+
+}
+
+
+
+function create_tools_intstall()
+{
+    mkdir -p ${RELEASE_TOOL_KITS_PATH}
+    cp -raf ${WWAN_TOOL_KITS_PATH}/tool_kits ${RELEASE_TOOL_KITS_PATH}
+    # create_tool_start ${RELEASE_RUN_PATH}/script
+    if [[ $1 == "run" ]]; then
+        mkdir -p ${RELEASE_INIT_PATH}
+        create_wwan_tool_service_conf ${RELEASE_INIT_PATH}
+    fi
+    # create_tool_start ${RELEASE_RUN_PATH}/script
+    if [[ $1 == "run" ]]; then
+        mkdir -p ${RELEASE_INIT_PATH}
+        create_wwan_tool_service_conf ${RELEASE_INIT_PATH}
+    fi
+    mkdir -p ${RELEASE_UI_PATH}
+    cp -raf ${UI_PATH}/* ${RELEASE_UI_PATH}
+    mkdir -p ${RELEASE_LIB_PATH}
+    cp -raf ${TOOL_LIB_PATH} ${RELEASE_LIB_PATH}
+
+    find "$RELEASE_LIB_PATH" -type d -name "api" -exec rm -rf {} +
+    if [[ $1 == "run" ]]; then
+        echo "run pacage no need desktop icon"
+    else
+        mkdir -p ${RELSEASE_DESKTOP_PATH}
+        create_tools_desktop ${RELSEASE_DESKTOP_PATH} $1
+        cp -raf ${SOURCE_ICON_PATH}  ${RELEASE_TOOL_KITS_PATH}
+    fi
+
+    cp -raf ${WWAN_BAND_INFO_PATH}  ${RELEASE_TOOL_KITS_PATH}
+}
+
+function create_wwan_func_d()
+{
+    echo "LD_LIBRARY_PATH=/opt/waf/libs/cxx_lib/:\$LD_LIBRARY_PATH:/usr/local/lib" > $1/env.conf
+
+}
+
+function create_wwan_dev_d()
+{
+    echo "LD_LIBRARY_PATH=/opt/waf/libs/cxx_lib/:\$LD_LIBRARY_PATH:/usr/local/lib" > $1/env.conf
+}
+
+function create_wwan_ma_d()
+{
+    echo "LD_LIBRARY_PATH=/opt/waf/libs/cxx_lib/:\$LD_LIBRARY_PATH:/usr/local/lib" > $1/env.conf
+}
+
+function create_wwan_func_service()
+{
+    echo "[Unit]
+Description=function flash and config modem Service
+After=wwan_dev.service
+
+[Service]
+EnvironmentFile=/lib/systemd/system/wwan_func.d/env.conf
+ExecStart=/opt/waf/wwan_service/wwan_func/wwan_func_service
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-abort
+Type=simple
+User=root
+TimeoutSec=3
+
+[Install]
+Alias=wwan_func.service
+WantedBy=multi-user.target" > $1/wwan_func.service
+
+}
+
+function create_wwan_dev_service()
+{
+    echo "[Unit]
+Description=function device manager Service
+After=ModemManager.service
+
+[Service]
+EnvironmentFile=/lib/systemd/system/wwan_dev.d/env.conf
+ExecStart=/opt/waf/wwan_service/wwan_dev/wwan_dev_service
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-abort
+Type=simple
+User=root
+
+[Install]
+Alias=wwan_dev.service
+WantedBy=multi-user.target" > $1/wwan_dev.service
+}
+
+function create_wwan_ma_service()
+{
+    echo "[Unit]
+Description=WWAN MA Service
+After=ModemManager.service
+
+[Service]
+EnvironmentFile=/lib/systemd/system/wwan_ma.d/env.conf
+ExecStart=/opt/waf/wwan_service/wwan_plugin/wwan_ma
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-abort
+Type=simple
+User=root
+
+[Install]
+Alias=wwan_ma.service
+WantedBy=multi-user.target" > $1/wwan_ma.service
+}
+
+
+function create_wwan_dev_service_conf()
+{
+    echo "# Copyright 2024 The ROLLING Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+description     \"starts wwan_dev service has been started.\"
+author          \"Rolling Wireless S.a.r.l.\"
+
+oom score -100
+
+
+start on starting system-services
+stop on stopping system-services
+
+respawn
+# if the job respawns 3 times in 30 seconds, stop trying.
+respawn limit 3 30
+# Do not respawn if we exited on purpose (e.g. service disabled).
+normal exit 0
+
+# Keep track of the wwan_dev process launched by minijail instead of the
+# minijail process. minijail exits immediately after launching wwan_dev.
+
+script
+  mkdir -p /var/log/waf/out || True
+  # Override logging level if sticky flag exists.
+  LD_LIBRARY_PATH=/usr/local/opt/waf/libs/cxx_lib:/usr/local/opt/waf/libs/qc_lib:\$LD_LIBRARY_PATH \\
+  exec /usr/local/opt/waf/wwan_service/wwan_dev/wwan_dev_service 2>> /var/log/waf/out/wwan_dev.log
+end script" > $1/wwan_dev.conf
+
+}
+
+function create_wwan_func_service_conf()
+{
+    echo "# Copyright 2024 The ROLLING Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+description     \"starts wwan_func once udev has been started.\"
+author          \"Rolling Wireless S.a.r.l.\"
+
+oom score -100
+
+
+start on starting system-services
+stop on stopping system-services
+
+respawn
+# if the job respawns 3 times in 30 seconds, stop trying.
+respawn limit 3 30
+# Do not respawn if we exited on purpose (e.g. service disabled).
+normal exit 0
+
+# Keep track of the wwan_func process launched by minijail instead of the
+# minijail process. minijail exits immediately after launching wwan_func.
+
+script
+  mkdir -p /var/log/waf/out || True
+  # Override logging level if sticky flag exists.
+  LD_LIBRARY_PATH=/usr/local/opt/waf/libs/cxx_lib:/usr/local/opt/waf/libs/qc_lib:\$LD_LIBRARY_PATH \\
+  exec /usr/local/opt/waf/wwan_service/wwan_func/wwan_func_service 2>> /var/log/waf/out/wwan_func.log
+end script" > $1/wwan_func.conf
+
+}
+
+function create_wwan_ma_service_conf()
+{
+    echo "# Copyright 2024 The ROLLING Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+description     \"starts wwan_ma service has been started.\"
+author          \"Rolling Wireless S.a.r.l.\"
+
+oom score -100
+
+start on starting system-services
+stop on stopping system-services
+
+respawn
+# if the job respawns 3 times in 30 seconds, stop trying.
+respawn limit 3 30
+# Do not respawn if we exited on purpose (e.g. service disabled).
+normal exit 0
+
+script
+  mkdir -p /var/log/waf/out || True
+  # Override logging level if sticky flag exists.
+  LD_LIBRARY_PATH=/usr/local/opt/waf/libs/cxx_lib:/usr/local/opt/waf/libs/qc_lib:\$LD_LIBRARY_PATH \\
+  exec /usr/local/opt/waf/wwan_service/wwan_plugin/wwan_ma 2>> /var/log/waf/out/wwan_ma.log
+end script" > $1/wwan_ma.conf
+}
+
+
+function create_tools_desktop()
+{
+    echo "[Desktop Entry]
+Version=1.0.0
+Type=Application
+Name=tool_kits
+Comment=WAF WWAN tools kits
+Exec=pkexec env LD_LIBRARY_PATH=/opt/waf/libs/cxx_lib:/usr/local/lib:\$LD_LIBRARY_PATH /opt/waf/tools/tool_kits_service/tool_kits
+Icon=/opt/waf/tools/tool_kits_service/rolling.png
+Terminal=false
+Categories=Utility;" > "$1/tool_kits.desktop"
+    chmod +x "$1/tool_kits.desktop"
+}
+
+OEMUSBID_LIST=( 2cb7:01a2 2cb7:0301 413c:8209 413c:8211 413c:8213 413c:8215 )
+
+function create_fcc_unlock()
+{
+    for s in ${OEMUSBID_LIST[@]}
+    do
+        echo "#!/bin/sh
+
+# SPDX-License-Identifier: CC0-1.0
+# 2023 Nero zhang <sinaro@sinaro.es>
+#
+# rolling FCC unlock mechanism
+#
+
+# run fcc-unlock binary
+env LD_LIBRARY_PATH=/opt/waf/libs/cxx_lib:/usr/local/lib:$LD_LIBRARY_PATH /opt/waf/wwan_service/wwan_plugin/wwan_ma
+exit $?" > $1/$s
+    done
+}
+
+
+
+function create_service_install()
+{
+    # copy file and config file
+    mkdir -p ${RELEASE_SERVICE_FUNC_PATH}
+    cp -raf ${WWAN_FUNC_PATH}/wwan_func_service ${RELEASE_SERVICE_FUNC_PATH}
+    mkdir -p ${RELEASE_SERVICE_DEV_PATH}
+    cp -raf ${WWAN_DEV_PATH}/wwan_dev_service ${RELEASE_SERVICE_DEV_PATH}
+    mkdir -p ${RELEASE_SERVICE_MA_PATH}
+    cp -raf ${WWAN_MA_PATH}/wwan_ma ${RELEASE_SERVICE_MA_PATH}
+    # cp -raf ${WWAN_DEV_PATH}/demo ${RELEASE_SERVICE_DEV_PATH}
+
+    if [ -f "$WWAN_MA_PATH/wwan_ma" ]; then
+        mkdir -p ${RELEASE_PLUGIN_MA_PATH}
+        cp -raf ${WWAN_MA_PATH}/wwan_ma ${RELEASE_PLUGIN_MA_PATH}
+        mkdir -p ${RELEASE_PLUGIN_MA_PATH}/fcc-unlock.d
+        create_fcc_unlock ${RELEASE_PLUGIN_MA_PATH}/fcc-unlock.d
+    fi
+
+    # create config file
+    if [[ $1 == "deb" ]] || [[ $1 == "rpm" ]]; then
+        mkdir -p ${RELEASE_SYSTEMD_PATH}
+        create_wwan_func_service ${RELEASE_SYSTEMD_PATH}
+        create_wwan_dev_service ${RELEASE_SYSTEMD_PATH}
+        create_wwan_ma_service ${RELEASE_SYSTEMD_PATH}
+
+        mkdir -p ${RELEASE_SYSTEMD_FUNC_CONF_PATH}
+        create_wwan_func_d ${RELEASE_SYSTEMD_FUNC_CONF_PATH}
+        mkdir -p ${RELEASE_SYSTEMD_DEV_CONF_PATH}
+        create_wwan_dev_d ${RELEASE_SYSTEMD_DEV_CONF_PATH}
+        mkdir -p ${RELEASE_SYSTEMD_MA_CONF_PATH}
+        create_wwan_ma_d ${RELEASE_SYSTEMD_MA_CONF_PATH}
+		mkdir -p ${BUILD_DIR}/release/usr/lib/udev/rules.d/
+		create_rule ${BUILD_DIR}/release/usr/lib/udev/rules.d/
+    elif [[ $1 == "run" ]]; then
+        # RELEASE_PATH=${RELEASE_RUN_PATH}
+        RELEASE_SCRIPT_PATH=${RELEASE_PATH}/script
+        mkdir -p ${RELEASE_SCRIPT_PATH}
+        cp -r ${SOURCE_RUN_SCRIPT_PATH}/uninstall.sh ${RELEASE_SCRIPT_PATH}
+
+        mkdir -p ${RELEASE_INIT_PATH}
+        create_wwan_func_service_conf ${RELEASE_INIT_PATH}
+        create_wwan_dev_service_conf ${RELEASE_INIT_PATH}
+        #create_wwan_ma_service_conf ${RELEASE_INIT_PATH}
+    fi
+
+    # copy lib
+    create_lib_intstall $2
+}
+
+function create_and_install()
+{
+    if [ -d "${BUILD_DIR}/release" ];then
+        rm -r ${BUILD_DIR}/release
+    fi
+    RELEASE_PATH=''
+    if [[ $2 == "deb" ]] || [[ $2 == "rpm" ]]; then
+        RELEASE_PATH=${RELEASE_DEB_RPM_PATH}
+    elif [[ $2 == "run" ]]; then
+        RELEASE_PATH=${RELEASE_RUN_PATH}
+    fi
+
+    mkdir -p ${RELEASE_PATH}
+
+    RELEASE_SERVICE_FUNC_PATH=${RELEASE_PATH}/wwan_service/wwan_func
+    RELEASE_SERVICE_DEV_PATH=${RELEASE_PATH}/wwan_service/wwan_dev
+    RELEASE_PLUGIN_MA_PATH=${RELEASE_PATH}/wwan_service/wwan_plugin
+
+    RELEASE_LIB_PATH=${RELEASE_PATH}/libs
+    RELEASE_TOOL_KITS_PATH=${RELEASE_PATH}/tools/tool_kits_service
+    RELEASE_UI_PATH=${RELEASE_PATH}/tools/ui
+    RELEASE_CLI_PATH=${RELEASE_PATH}/cli
+
+    if [ "$1" == "service" ]; then
+        create_service_install $2
+    elif [ "$1" == "tools" ]; then
+        create_tools_intstall $2
+    elif [ "$1" == "cli" ]; then
+        create_fibcli_intstall
+    elif [ "$1" == "lib" ]; then
+        create_lib_intstall
+    elif [ "$1" == "service_tools" ]; then
+        create_service_install $2
+        create_tools_intstall $2
+    fi
+}
+
+function create_rule()
+{
+    echo "# do not edit this file, it will be overwritten on update
+	ACTION!=\"add|change|move|bind\", GOTO=\"mm_fibocom_linux_apps_port_types_end\"
+	SUBSYSTEMS==\"pci\", SUBSYSTEM==\"wwan\", ATTRS{vendor}==\"0x14c3\", GOTO=\"mm_fm350_port_types\"
+	SUBSYSTEMS==\"usb\", ATTRS{bInterfaceNumber}==\"?*\", ENV{.MM_USBIFNUM}=\"\$attr{bInterfaceNumber}\", GOTO=\"mm_fm101_port_types\"
+	GOTO=\"mm_fibocom_linux_apps_port_types_end\"
+
+	LABEL=\"mm_fm350_port_types\"
+	ATTRS{vendor}==\"0x14c3\", ATTRS{device}==\"0x4d75\", ATTR{type}==\"FASTBOOT\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+	GOTO=\"mm_fibocom_linux_apps_port_types_end\"
+
+	LABEL=\"mm_fm101_port_types\"
+	ATTRS{idVendor}==\"2cb7\", ATTRS{idProduct}==\"01a2\", ENV{.MM_USBIFNUM}==\"02\", SUBSYSTEM==\"tty\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+	ATTRS{idVendor}==\"2cb7\", ATTRS{idProduct}==\"01a2\", ENV{.MM_USBIFNUM}==\"03\", SUBSYSTEM==\"tty\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+	ATTRS{idVendor}==\"2cb7\", ATTRS{idProduct}==\"01a2\", ENV{.MM_USBIFNUM}==\"04\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+	ATTRS{idVendor}==\"2cb7\", ATTRS{idProduct}==\"01a2\", ENV{.MM_USBIFNUM}==\"05\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+
+	ATTRS{idVendor}==\"413c\", ATTRS{idProduct}==\"8213\", ENV{.MM_USBIFNUM}==\"02\", SUBSYSTEM==\"tty\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+	ATTRS{idVendor}==\"413c\", ATTRS{idProduct}==\"8215\", ENV{.MM_USBIFNUM}==\"02\", SUBSYSTEM==\"tty\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+    ATTRS{idVendor}==\"05c6\", ATTRS{idProduct}==\"900e\", ENV{ID_MM_PORT_IGNORE}=\"1\"
+	LABEL=\"mm_fibocom_linux_apps_port_types_end\"
+	" > $1/76-mm-waf-linux-apps-port-types.rules
+		chmod 755 $1/76-mm-waf-linux-apps-port-types.rules
+}
+
+if [ $# -eq 2 ]; then
+    
+    if [ "$1" == "service" ] || [ "$1" == "tools" ] || [ "$1" == "cli" ]\
+    || [ "$1" == "lib" ] || [ $1 == "service_tools" ]; then
+        create_and_install $1 $2
+    else
+        echo "Invalid parameter"
+    fi
+else
+    echo "Invalid parameter"
+fi

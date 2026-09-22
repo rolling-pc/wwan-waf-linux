@@ -1,0 +1,31 @@
+Windows:
+
+- Download openssl source from https://www.openssl.org/source/
+
+- Open cygwin terminal, go to openssl source file folder.
+
+- Run ./config, it will generate the make file. 
+
+- make
+
+- Copy the generated lib file libcrypto.a to the sub folder \lib\windows of the tool pcie-adb
+
+- Copy all files in the sub folder include\openssl of openssl source folder to the sub folder include\openssl of the tool pcie-adb
+
+- Rebuild pcie-adb
+
+Linux:
+
+- Download openssl source from https://www.openssl.org/source/
+
+- Open Linux terminal, go to openssl source file folder.
+
+- Run ./config, it will generate the make file. 
+
+- make
+
+- Copy the generated lib file libcrypto.a to the sub folder /lib/windows of the tool pcie-adb
+
+- Copy all files in the sub folder include/openssl of openssl source folder to the sub folder include/openssl of the tool pcie-adb
+
+- Rebuild pcie-adb

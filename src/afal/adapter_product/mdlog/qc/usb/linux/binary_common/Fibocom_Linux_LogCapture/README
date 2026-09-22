@@ -1,0 +1,32 @@
+
+run logtool -h to get help info.
+
+1. Fibocom QCOM Modules
+
+./logtool <-d [DiagPort]> <-s [logdir]> <-f [config_file]> <-m [single_log_filesize(MB)]> <-n [max_log_filenum]>
+./logtool -h (this info)
+
+If the default usb mode, can run logtool with out params.
+example: ./logtool
+
+2. Fibocom V3T/E Modules
+
+./logtool <-d [diag port]> <-l [log save path]> < -m [single_logfile_size(MB)]>
+
+If the default usb mode, can run logtool with out params.
+example: ./logtool
+
+
+3. Fibocom Unisoc Modules
+
+./logtool <-a (ap log switch)> <-p [cp logport]> <-s [log save dir]> <-m [single_log_filesize(MB)]> <-n [max_log_filenum]> <-i [IP] -u [username] -w [passward]>
+Example: ./logtool -p /dev/ttyUSB3
+
+If the default usb mode, can run logtool with out params.
+
+<******** The usb port must be enumerated. **********>
+example: ./logtool
+
+
+
+

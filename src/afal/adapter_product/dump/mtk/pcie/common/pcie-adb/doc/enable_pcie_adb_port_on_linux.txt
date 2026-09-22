@@ -1,0 +1,24 @@
+The ports enabling is set in the file /mnt/vendor/nvdata/md_cmn/dipc_config
+
+Following is an example of the file dipc_config:
+
+dual_ipc_mode:1
+ap_logging_interface:1
+md_logging_interface:1
+md_at_interface:1
+ap_pcie_port_config:5
+md_pcie_port_config:13
+
+The pcie adb port enabling is controlled by the parameter ap_pcie_port_config.
+
+The definition of the ap_pcie_port_config is as follows:
+
+this parameter applied when dual_ipc_mode=1, 2 and 3
+It's an Integer value (ex:13)
+bitmap:
+0x1: Logging AP
+0x2: ADB
+0x4: GNSS AT
+0x8: Meta (GPS)
+
+So, in order to enable the pcie adb port, just change the parameter ap_pcie_port_config to 7 and reboot the device.

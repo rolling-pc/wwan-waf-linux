@@ -1,0 +1,8 @@
+#ifndef AFAL_ADAPTER_PRODUCT_FLASH_QC_QC_COMMON_CC_
+#define AFAL_ADAPTER_PRODUCT_FLASH_QC_QC_COMMON_CC_
+
+namespace afal {
+
+}  // namespace afal
+
+#endif // AFAL_ADAPTER_PRODUCT_FLASH_QC_QC_COMMON_CC_

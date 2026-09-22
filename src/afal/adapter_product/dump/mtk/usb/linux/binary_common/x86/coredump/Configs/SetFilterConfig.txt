@@ -1,0 +1,8 @@
+# 1. Copy **.bin to FilterBin
+# 2. Please fill customized filter(Level Name Path) in the following format
+1 Moderate FilterBin/catcher_filter_1_Moderate.bin
+2 Standard FilterBin/catcher_filter_2_Standard.bin
+3 Slim FilterBin/catcher_filter_3_Slim.bin
+4 UltraSlim FilterBin/catcher_filter_4_UltraSlim.bin
+5 PLS_PS_ONLY FilterBin/catcher_filter_PLS_PS_ONLY.bin
+

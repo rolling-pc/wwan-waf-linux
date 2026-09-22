@@ -1,0 +1,468 @@
+#include "unisoc_log_main.h"
+#include <netinet/ip.h>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include "log_control.h"
+
+extern int g_tcp_client_port;
+extern char g_tcp_client_ip[16];
+
+unsigned int inet_addr(const char *cp);
+char *inet_ntoa(struct in_addr in);
+
+#define CACHE_SIZE (5*1024*1024)
+static const size_t cache_step = (256*1024);
+
+#ifdef CACHE_SIZE
+#define min(x,y) (((x) < (y)) ? (x) : (y))
+struct __kfifo {
+    int fd;
+    size_t in;
+    size_t out;
+    size_t size;
+    void *data;
+};
+
+static int __kfifo_write(struct __kfifo *fifo, const void *buf, size_t size)
+{
+    void *data;
+    size_t unused, len;
+    ssize_t nbytes;
+    int fd = fifo->fd;
+
+    //LogInfo("size ===%d ,fifo->size====%d ,fifo->in====%d ,fifo->out===%d\n",size,fifo->size,fifo->in,fifo->out);
+    if (fifo->out == fifo->in)
+    {
+        nbytes = ulog_poll_write(fd, buf, size,0);
+
+        if(nbytes > 0)
+        {
+            if((size_t)nbytes == size)
+            {
+                return 1;
+            }
+            else
+            {
+                buf = (char *)buf + nbytes;
+                size -= nbytes;
+#if 0
+                while(1)
+                {
+                    buf += nbytes;
+                    size -= nbytes;
+                    nbytes = ulog_poll_write(fd, buf, size,0);
+                    //LogInfo("box =====nbytes == %d\n",nbytes);
+                    if(nbytes == size)
+                    {
+                        //LogInfo("box =====nbytes == size\n");
+                        return 1;
+                    }
+                }
+#endif
+            }
+        }
+        else if (errno == ECONNRESET)
+        {
+            LogInfo("TODO: ECONNRESET\n");
+            return 0;
+        }
+    }
+
+    unused = fifo->size - fifo->in;
+    if (unused < size && size < (unused + fifo->out))
+    {
+        memmove(fifo->data, (char *)fifo->data + fifo->out, fifo->in - fifo->out);
+        fifo->in -=  fifo->out;
+        fifo->out = 0;    
+    }
+
+    unused = fifo->size - fifo->in;
+    if(unused < size && fifo->size < CACHE_SIZE)
+    {
+        data = malloc(fifo->size + cache_step);
+
+        if (data)
+        {
+            LogInfo("cache[fd=%d] size %zd -> %zd KB\n", fd, fifo->size/1024, (fifo->size + cache_step)/1024);
+            if(fifo->data)
+            {
+                len = fifo->in - fifo->out;
+                if (len)
+                    memcpy(data, (char *)fifo->data + fifo->out, len);
+                free(fifo->data);
+            }
+
+            fifo->in -=  fifo->out;
+            fifo->out = 0;
+            fifo->size += cache_step;
+            fifo->data = data;
+        }
+    }
+
+    unused = fifo->size - fifo->in;
+    if (unused < size)
+    {
+        static size_t drop = 0;
+        static unsigned slient_msec = 0;
+        unsigned now = ulog_msecs();
+
+        drop += size;
+        if ((slient_msec+5000) < now)
+        {
+            LogInfo("cache[fd=%d] full, total drop %zd\n", fd, drop);
+            slient_msec = now;
+        }
+    }
+    else
+    {
+        memcpy((char *)fifo->data + fifo->in, buf, size);
+        fifo->in += size;
+    }
+
+    len = fifo->in - fifo->out;
+    if (len)
+    {
+        nbytes = ulog_poll_write(fd, (char *)fifo->data + fifo->out, len, 0);
+
+        if (nbytes > 0)
+        {
+            fifo->out += nbytes;
+
+            if (fifo->out == fifo->in)
+            {
+                fifo->in = 0;
+                fifo->out = 0;
+            }
+        }
+        else if(errno == ECONNRESET)
+        {
+            LogInfo("TODO: ECONNRESET\n");
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+#define FIFO_NUM 4
+static struct __kfifo kfifo[FIFO_NUM] = {{-1, 0, 0, 0, NULL}, {-1, 0, 0, 0, NULL}, {-1, 0, 0, 0, NULL}, {-1, 0, 0, 0, NULL}};
+
+int kfifo_alloc(int fd) {
+    int idx = 0;
+    int flags;
+
+    if (fd == -1)
+        return fd;
+
+    for (idx = 0; idx < FIFO_NUM; idx++) {
+        if (kfifo[idx].fd == -1)
+            break;
+    }
+
+    if (idx == FIFO_NUM) {
+        LogInfo("No Free FIFO for fd = %d\n", fd);
+        return -1;
+    }
+
+    kfifo[idx].fd = fd;
+    kfifo[idx].in = kfifo[idx].out = 0;
+
+    flags = fcntl(fd, F_GETFL);
+    if (flags != -1)
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    LogInfo("%s [%d] = %d\n", __func__, idx, fd);
+    return idx;
+}
+
+size_t kfifo_write(int idx, const void *buf, size_t size) {
+    if (idx < 0 ||  idx >= FIFO_NUM)
+        return 0;
+    return __kfifo_write(&kfifo[idx], buf, size) ? size : 0;
+}
+
+void kfifo_free(int idx) {
+    if (idx < 0 || idx >= FIFO_NUM)
+        return;
+    LogInfo("%s [%d] = %d\n", __func__, idx, kfifo[idx].fd);
+    kfifo[idx].fd = -1;
+    kfifo[idx].in = kfifo[idx].out = 0;
+}
+
+int kfifo_idx(int fd) {
+    int idx = 0;
+
+    if (fd == -1)
+        return fd;
+
+    for (idx = 0; idx < FIFO_NUM; idx++) {
+        if (kfifo[idx].fd == fd)
+            break;
+    }
+
+    if (idx == FIFO_NUM) {
+        return -1;
+    }
+
+    return idx;
+}
+#endif
+
+static int wait_tcp_client_connect(int tcp_port) {
+    int sockfd, n, connfd;
+    struct sockaddr_in serveraddr;
+    struct sockaddr_in clientaddr;
+    int reuse_addr = 1;
+    size_t sin_size;
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd == -1)
+    {
+        LogInfo("Create socket fail!\n");
+        return 0;
+    }
+
+    memset(&serveraddr, 0, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons(tcp_port);
+
+    LogInfo("Starting the TCP server(%d)...\n", tcp_port);
+
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr,sizeof(reuse_addr));
+
+    n = bind(sockfd, (struct sockaddr *)&serveraddr, sizeof(serveraddr));
+    if (n == -1)
+    {
+        LogInfo("bind fail! errno: %d\n", errno);
+        close(sockfd);
+        return 0;
+    }
+    LogInfo("bind OK!\n");
+
+    n = listen(sockfd, 1);
+    if (n == -1)
+    {
+        LogInfo("listen fail! errno: %d\n", errno);
+        close(sockfd);
+        return 0;
+    }
+    LogInfo("listen OK! and Waiting the TCP Client...\n");
+
+    sin_size = sizeof(struct sockaddr_in);
+    connfd = accept(sockfd, (struct sockaddr *)&clientaddr, (socklen_t *)&sin_size);
+    close(sockfd);
+    if (connfd == -1)
+    {
+        LogInfo("accept fail! errno: %d\n", errno);
+        return -1;
+    }
+
+    fcntl(connfd, F_SETFL, fcntl(connfd, F_GETFL) | O_NONBLOCK);
+
+    LogInfo("TCP Client %s:%d connect tcp port %d, connfd = %d\n",
+        inet_ntoa(clientaddr.sin_addr), clientaddr.sin_port, tcp_port, connfd);
+
+    kfifo_alloc(connfd);
+    return connfd;
+}
+
+int tty2tcp_sockfd = -1;
+static int tty2tcp_ttyfd = -1;
+static int tty2tcp_logfd = -1;
+static int tty2tcp_tcpport = 9000;
+#define  tty2tcp_closefd(_fd) do { if (_fd != -1) { int tmp_fd = _fd; _fd = -1; kfifo_free(kfifo_idx(tmp_fd)); close(tmp_fd);}} while (0)
+
+static void *tcp_sock_read_Loop(void *arg) {
+    void *rbuf;
+    const size_t rbuf_size = (4*1024);
+
+    rbuf = malloc(rbuf_size);
+    if (rbuf == NULL) {
+          LogInfo("Fail to malloc rbuf_size=%zd, errno: %d (%s)\n", rbuf_size, errno, strerror(errno));
+          return NULL;
+    }
+
+    while (ulog_exit_requested == 0) {
+        ssize_t rc, wc;
+        int ret;
+        struct pollfd pollfds[] = {{0, POLLIN, 0}, {0, POLLIN, 0}};
+        int n = 0, i;
+
+        if (tty2tcp_sockfd == -1 && tty2tcp_logfd == -1) {
+            tty2tcp_sockfd = wait_tcp_client_connect(tty2tcp_tcpport);
+            if (tty2tcp_sockfd == -1)
+                break;
+
+            if (g_is_unisoc_chip) {
+                tty2tcp_logfd = wait_tcp_client_connect(tty2tcp_tcpport+1);
+                if (tty2tcp_logfd == -1)
+                    break;
+            }
+        }
+
+        if (tty2tcp_sockfd != -1)
+            pollfds[n++].fd = tty2tcp_sockfd;
+
+        if (tty2tcp_logfd != -1)
+            pollfds[n++].fd = tty2tcp_logfd;
+
+        if (n == 0)
+            break;
+
+        do {
+            ret = poll(pollfds, n, -1);
+        } while (ret == -1 && errno == EINTR && ulog_exit_requested == 0);
+
+        if (ret <= 0) {
+            LogInfo("poll(ttyfd) =%d, errno: %d (%s)\n", ret, errno, strerror(errno));
+            break;
+        }
+
+        for (i = 0; i <  n; i++) {
+            int fd = pollfds[i].fd;
+
+            if (pollfds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                LogInfo("fd = %d revents = %04x\n", fd, pollfds[0].revents);
+                if (((pollfds[i].fd == tty2tcp_sockfd) ? tty2tcp_sockfd : tty2tcp_logfd) == tty2tcp_sockfd)
+                {
+                    tty2tcp_closefd(pollfds[i].fd);
+                    pollfds[i].fd = -1;
+                    tty2tcp_sockfd = -1;
+                }
+                else
+                {
+                    tty2tcp_closefd(pollfds[i].fd);
+                    pollfds[i].fd = -1;
+                    tty2tcp_logfd = -1;
+                }
+                break;
+            }
+
+            if (!(pollfds[i].revents & (POLLIN)))
+                continue;
+
+            rc = read(fd, rbuf, rbuf_size);
+
+            if (rc <= 0) {
+                LogInfo("sockfd = %d recv %zd Bytes. maybe terminae by peer!\n", fd, rc);
+                if (fd == tty2tcp_sockfd)
+                    tty2tcp_closefd(tty2tcp_sockfd);
+                else if (fd == tty2tcp_logfd)
+                    tty2tcp_closefd(tty2tcp_logfd);
+            }		
+            else if (fd == tty2tcp_sockfd){ 
+                if (g_is_unisoc_chip)
+                {
+                    wc = ulog_poll_write(tty2tcp_ttyfd, rbuf, rc, 1000);
+                }
+
+                if (wc != rc) {
+                    //LogInfo("ttyfd write fail %zd/%zd, break\n", wc, rc);
+                    //break;
+                }
+            }
+            else
+            {
+                LogInfo("recv %zd Bytes from fd = %d\n", rc, fd);
+            }
+        }
+    }
+
+    free(rbuf);
+    tty2tcp_closefd(tty2tcp_sockfd);
+    tty2tcp_closefd(tty2tcp_logfd);
+    LogInfo("%s exit\n", __func__);
+
+    return NULL;
+}
+
+static int tty2tcp_init_filter(int ttyfd, const char *cfg) {
+    pthread_t tid;
+    pthread_attr_t attr;
+
+    tty2tcp_ttyfd = ttyfd;
+    if (cfg)
+        tty2tcp_tcpport = atoi(cfg);
+
+    pthread_attr_init (&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&tid, &attr, tcp_sock_read_Loop, NULL);
+
+    return 0;
+}
+
+static int tty2tcp_logfile_create(const char *logfile_dir, const char *logfile_suffix, unsigned logfile_seq) {
+    return 1;
+}
+
+static size_t tty2tcp_logfile_save(int logfd, const void *buf, size_t size) {
+    if (g_unisoc_log_type == 0) {
+        if (tty2tcp_sockfd == -1) {
+            return size;
+        }
+
+        return kfifo_write(kfifo_idx(tty2tcp_sockfd), buf, size);
+    }
+    else {
+        if (tty2tcp_logfd == -1) {
+            return size;
+        }
+
+        return kfifo_write(kfifo_idx(tty2tcp_logfd), buf, size);
+    }
+}
+
+static int tty2tcp_logfile_close(int logfd) {
+    return 0;
+}
+
+ulog_ops_t tty2tcp_log_ops = {
+    .init_filter = tty2tcp_init_filter,
+    .logfile_create = tty2tcp_logfile_create,
+    .logfile_save = tty2tcp_logfile_save,
+    .logfile_close = tty2tcp_logfile_close,
+};
+
+static int tcp_client_logfile_create(const char *logfile_dir, const char *logfile_suffix, unsigned logfile_seq)
+{
+    int ret = -1;
+    int logfd = -1;
+
+    logfd = socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
+    if (logfd <0)
+    {
+        LogInfo("qlog_tcp_client_logfile_create : socket : error\n");
+        return -1;
+    }
+
+    struct sockaddr_in ser;
+    memset(&ser,0,sizeof(ser));
+
+    ser.sin_family = AF_INET;
+    ser.sin_port = htons(g_tcp_client_port);
+    ser.sin_addr.s_addr = inet_addr(g_tcp_client_ip);
+
+    do
+    {
+        LogInfo("Actively connect to the server...\n");
+        ret = connect(logfd,(struct sockaddr *)&ser,sizeof(ser));
+        if (ret == 0)
+        {
+            LogInfo("TCP connection established ip:%s  port:%d\n",g_tcp_client_ip,g_tcp_client_port);
+            break;
+        }else
+        {
+            LogInfo("qlog_tcp_client_logfile_create : connect error\n");
+            logfd = -1;
+            break;
+        }
+    } while(1);
+
+    kfifo_alloc(logfd);
+    return logfd;
+}
+
+ulog_ops_t tcp_client_log_ops = {
+    .logfile_create = tcp_client_logfile_create,
+};

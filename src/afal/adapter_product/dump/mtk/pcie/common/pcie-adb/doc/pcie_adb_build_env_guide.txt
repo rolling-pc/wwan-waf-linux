@@ -1,0 +1,82 @@
+1. Related libraries
+
+Openssl and zlib libraries are required to compile pcie-adb tool.
+
+There are static library files in the lib/windows folder, and the related header files are in the include folder.
+
+Current library versions are openssl-1.1.1k and zlib-1.2.11.
+
+2. Build environment
+
+The development and testing environment for Windows is Cygwin which version is 2.905(64 bit).
+
+Here is the version of make and gcc tools used to compile pcie-adb tool：
+
+$ make --version
+GNU Make 4.3
+
+$ gcc --version
+gcc (GCC) 10.2.0
+
+3. Makefile
+
+3.1 Modify the type of host OS
+
+HOST_OS = Windows  --> build pcie-adb.exe for Windows system
+HOST_OS = Linux    --> build pcie-adb for Linux system
+
+3.2 Modify libraries folder
+
+Add or change the header file folder path:
+
+  49 CPPFLAGS+= -I. -I./include
+
+Change the folder path of related libraries(openssl):
+
+  56 ifeq ($(HOST_OS), Windows)
+  57 LOCAL_CFLAGS+= -DADB_WINDOWS
+  58 LIBS+= -L./lib/windows -lcrypto
+  59 else
+  60 LIBS+= -L./lib/linux -lcrypto
+  61 endif
+
+4. Build command
+
+Windows:
+
+make -j8
+
+Linux:
+
+make -j8 -f Makefile.Linux
+
+5. Debug in cygwin
+
+export ADB_TRACE=all
+./pcie-adb devices
+...
+
+6. Some build options
+
+-pthread Define additional macros required for using the POSIX threads library. You
+         should use this option consistently for both compilation and linking. This
+         option is supported on GNU/Linux targets, most other Unix derivatives, and
+         also on x86 Cygwin and MinGW targets.
+
+7. Problems when upgrading cygwin
+
+When you upgrade the cygwin version, you may see the compiling is deadlocked. This 
+is because the cygwin1.dll in the project folder is not the same as the file in the 
+folder "bin" of the cygwin. So, just copy the cygwin1.dll from "bin" folder of the
+cygwin to the project folder and the issue is gone.
+
+8. Build in Linux
+
+When you build pcie-adb in Linux, you may see build error because of the option -lz. 
+The reason is because the zlib is not installed in your Linux system. 
+
+You can use either of the below commands to install it.
+
+sudo apt install zlib1g
+
+sudo apt install zlib1g-dev

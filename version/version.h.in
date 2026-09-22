@@ -1,0 +1,4 @@
+#ifndef VERSION_H
+#define VERSION_H
+#define WWAN_DEV_VERSION_STRING "@WWAN_DEV_VERSION_STRING@"
+#endif
