@@ -45,6 +45,10 @@ add_subdirectory(wwan_dev_lib)
 # ===== [开源改造 START] 私有库：内部仓库有源码 → 编译；对外仓库无源码 → 跳过 =====
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/private_dev/CMakeLists.txt)
 add_subdirectory(private_dev)
+else()
+include(${CMAKE_SOURCE_DIR}/cmake/WafPrivateDeps.cmake)
+    # 无私有源码时：接入 prebuilt 里的预编译库
+    waf_import_private_lib(private_dev)
 endif()
 # ===== [开源改造 END] =====
 
@@ -123,7 +127,8 @@ endif()
 
 link_directories(${local_lib_path})
 # 链接库
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Network private_dev devicemonitor log)
+# 末尾的 osinfo 是预编译 private_dev 所需的传递依赖
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Network private_dev devicemonitor log osinfo)
 
 # 添加客户端可执行文件
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

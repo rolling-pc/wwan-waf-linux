@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "version": "1.0.21",
+  "built_with": { "os": "ubuntu-22.04", "arch": "x86_64", "qt": "5.15.13" },
+  "note": "Proprietary prebuilt libraries for private_dev / private_func. Source code is not distributed.",
+  "libs": {
+    "private_dev":  { "file": "libs/libprivate_dev.so",  "sha256": "7c08750667992c1c3afe8cc21cae4bd8f9430b3a11bcd06fa7788f7e670525b2" },
+    "private_func": { "file": "libs/libprivate_func.so", "sha256": "0031b9410a6ab469beb0a43d7f6b977bb230b441997610651556293c6dca54f2" }
+  }
+}

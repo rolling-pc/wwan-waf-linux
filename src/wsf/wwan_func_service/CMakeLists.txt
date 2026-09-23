@@ -31,6 +31,10 @@ add_subdirectory(wwan_func_lib)
 # ===== [开源改造 START] 私有库：内部仓库有源码 → 编译；对外仓库无源码 → 跳过 =====
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/private_func/CMakeLists.txt)
 add_subdirectory(private_func)
+else()
+include(${CMAKE_SOURCE_DIR}/cmake/WafPrivateDeps.cmake)
+    # 无私有源码时：接入 prebuilt 里的预编译库
+    waf_import_private_lib(private_func)
 endif()
 # ===== [开源改造 END] =====
 
@@ -116,7 +120,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_options(${PROJECT_NAME} PRIVATE -fPIC)
 endif()
 # 链接导入的依赖项
-target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Network Qt5::Concurrent mbim log private_func wwan_dev_lib)
+# 末尾几项是预编译 private_func 所需的传递依赖
+target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Network Qt5::Concurrent mbim log private_func wwan_dev_lib osinfo display power lpa QuaZip curl)
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     # **确保静态库的路径**
     target_link_directories(${PROJECT_NAME} PRIVATE ${CMAKE_RELEASE_DIR}/private_func ${CMAKE_RELEASE_DIR}/wwan_dev_lib)
